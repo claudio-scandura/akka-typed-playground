@@ -25,12 +25,11 @@ import scala.concurrent.{Await, Future}
 import scala.util.Random
 
 object TestConfig {
-  val inMemoryJournalConfig = ConfigFactory.parseString(
-    s"""
-       |akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
-       |akka.persistence.journal.inmem.test-serialization = on
-       |akka.actor.allow-java-serialization = on
-       |""".stripMargin)
+  val inMemoryJournalConfig = ConfigFactory.parseString(s"""
+                                                           |akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
+                                                           |akka.persistence.journal.inmem.test-serialization = on
+                                                           |akka.actor.allow-java-serialization = on
+                                                           |""".stripMargin)
 }
 
 class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJournalConfig) with AnyWordSpecLike {
@@ -59,7 +58,7 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
       underTest ! Open(probe.ref)
 
       probe.expectMessageType[CommandResponse].bottleState should have(
-        'isClosed(false)
+        'isClosed (false)
       )
 
       //idempotence check
@@ -78,11 +77,10 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
 
         val amountLeft = probe.expectMessageType[CommandResponse].bottleState.amountLeft
 
-
         underTest ! Pour(amountToPour, probe.ref)
 
         probe.expectMessageType[CommandResponse].bottleState should have(
-          'amountLeft(amountLeft - amountToPour)
+          'amountLeft (amountLeft - amountToPour)
         )
       }
     }
@@ -96,14 +94,12 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
 
       probe.expectMessageType[CommandResponse]
 
-
       underTest ! Close(probe.ref)
 
       probe.expectMessageType[CommandResponse].bottleState should have(
-        'isClosed(true)
+        'isClosed (true)
       )
     }
-
 
     s"reject ${classOf[Pour].getSimpleName} command if bottle is closed" in WithExpectedEvents.none {
       val probe = createTestProbe[CommandResponse]()
@@ -126,12 +122,11 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
 
         probe.expectMessageType[CommandResponse].bottleState.amountLeft shouldBe amount
 
-
         underTest ! Pour(amount, probe.ref)
 
         probe.expectMessageType[CommandResponse].bottleState should have(
-          'isEmpty(true),
-          'amountLeft(0.0)
+          'isEmpty (true),
+          'amountLeft (0.0)
         )
 
         //idempotence check
@@ -143,15 +138,17 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
   }
 
   "Load testing" should {
-    def runLoadTest(numOfEntities: Int, flow: Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand), Done, NotUsed]): Unit = {
-
+    def runLoadTest(
+        numOfEntities: Int,
+        flow: Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand), Done, NotUsed]
+    ): Unit = {
 
       import scala.concurrent.duration._
 
       implicit val timeout = Timeout(5.seconds)
 
       implicit val mat = ActorMaterializer()(system.toClassic)
-      val capacity = 1.0
+      val capacity     = 1.0
 
       // Allocate entities
       val entities = (1 to numOfEntities).map { _ =>
@@ -160,18 +157,24 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
       }.toMap
 
       // Create commands
-      val commands = Random.shuffle(entities.keys.toList.map { id =>
-        List((id, ref => Open(ref)), (id, ref => Pour(capacity, ref)))
-      }).flatten
+      val commands = Random
+        .shuffle(entities.keys.toList.map { id =>
+          List((id, ref => Open(ref)), (id, ref => Pour(capacity, ref)))
+        })
+        .flatten
 
       val start = Instant.now()
-      val responsesF = Source.fromIterator(() => commands.iterator).map {
-        case (id, command) => (entities(id), command)
-      }.via(flow).runWith(Sink.seq)
+      val responsesF = Source
+        .fromIterator(() => commands.iterator)
+        .map {
+          case (id, command) => (entities(id), command)
+        }
+        .via(flow)
+        .runWith(Sink.seq)
 
       val responses = Await.result(responsesF, 5.minutes)
 
-      val end = Instant.now()
+      val end           = Instant.now()
       val elapsedMillis = ChronoUnit.MILLIS.between(start, end)
       //Verify that eventually all commands are processed correctly
       responses should have size (2 * numOfEntities)
@@ -179,7 +182,9 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
         _ should not be a[UnexpectedCommand]
       }
 
-      logger.info(s"Processed ${numOfEntities * 2} commands in $elapsedMillis milliseconds. ${ numOfEntities * 2 / (elapsedMillis / 1000)} commands/second")
+      logger.info(
+        s"Processed ${numOfEntities * 2} commands in $elapsedMillis milliseconds. ${numOfEntities * 2 / (elapsedMillis / 1000)} commands/second"
+      )
 
     }
 
@@ -190,14 +195,23 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
       }
 
       // As the simpleFlow but the second async task is run in a subsequent flow which is separated using async boundaries and thus enabling pipelining
-      val flowWithPipelining = Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)].mapAsync(1) {
-        case (entity, command) => askCommandToEntity(entity, command)
-      }.async.via(Flow[CommandResponse].mapAsync(1)(_ => doOtherExpensiveTask())).async
+      val flowWithPipelining = Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)]
+        .mapAsync(1) {
+          case (entity, command) => askCommandToEntity(entity, command)
+        }
+        .async
+        .via(Flow[CommandResponse].mapAsync(1)(_ => doOtherExpensiveTask()))
+        .async
 
       // As flowWithPipelining but in the first flow, where commands are sent to entity the parallelism in the mapAsync is increased
-      val flowWithHigherParallelismAndPipelining = Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)].mapAsync(Runtime.getRuntime.availableProcessors()) {
-        case (entity, command) => askCommandToEntity(entity, command)
-      }.async.via(Flow[CommandResponse].mapAsync(1)(_ => doOtherExpensiveTask())).async
+      val flowWithHigherParallelismAndPipelining =
+        Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)]
+          .mapAsync(Runtime.getRuntime.availableProcessors()) {
+            case (entity, command) => askCommandToEntity(entity, command)
+          }
+          .async
+          .via(Flow[CommandResponse].mapAsync(1)(_ => doOtherExpensiveTask()))
+          .async
 
       runLoadTest(100, simpleFlow)
       runLoadTest(100, flowWithPipelining)
@@ -206,23 +220,22 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
 
   }
 
-  private def askCommandToEntity(entity: ActorRef[BottleCommand], command: ActorRef[CommandResponse] => BottleCommand) = {
-    withRetries((Math.random() * 10).intValue().milliseconds)(() => entity.ask[CommandResponse](command(_)))
-  }
+  private def askCommandToEntity(entity: ActorRef[BottleCommand], command: ActorRef[CommandResponse] => BottleCommand) =
+    withRetries(0.milliseconds)(() => entity.ask[CommandResponse](command(_)))
 
-  private def doOtherExpensiveTask(): Future[Done] = {
-    akka.pattern.after((Math.random() * 10).intValue().milliseconds, system.scheduler.toClassic)(Future.successful(Done))
+  private def doOtherExpensiveTask(): Future[Done] = Future {
+    utils.busy(20.milliseconds)
+    Done
   }
 
   // Run the async call after the given initDelay and recurse when the result of the call is an UnexpectedCommand, meaning that the
   // entity rejected the command
-  def withRetries(initDelay: FiniteDuration)(call: () => Future[CommandResponse]): Future[CommandResponse] = {
+  def withRetries(initDelay: FiniteDuration)(call: () => Future[CommandResponse]): Future[CommandResponse] =
     akka.pattern.after(initDelay, system.scheduler.toClassic)(call()).flatMap {
       case _: UnexpectedCommand =>
-        logger.debug("UnexpectedCommand response received... retrying")
-        withRetries(10.milliseconds)(call)
+        logger.info("UnexpectedCommand response received... retrying")
+        withRetries(2.milliseconds)(call)
       case resp => Future.successful(resp)
     }
-  }
 
 }

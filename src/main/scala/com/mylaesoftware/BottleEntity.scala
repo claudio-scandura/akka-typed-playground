@@ -2,10 +2,12 @@ package com.mylaesoftware
 
 import java.util.UUID
 
+import utils._
 import akka.actor.typed.{ActorRef, Behavior}
 import akka.persistence.typed.PersistenceId
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
-
+import scala.concurrent.duration._
+import scala.concurrent.duration.FiniteDuration
 
 /**
  * Represents a Bottle entity with a capacity and can either be Open or Closed. When Open the entity accepts
@@ -48,33 +50,38 @@ object BottleEntity {
     def isEmpty: Boolean = amountLeft <= 0.0
   }
 
-  def apply(id: UUID = UUID.randomUUID(), capacity: Double = DefaultCapacity): Behavior[BottleCommand] = EventSourcedBehavior[BottleCommand, BottleEvent, BottleState](
-    persistenceId = PersistenceId.ofUniqueId(id.toString),
-    emptyState = BottleState(capacity, isClosed = true),
-    commandHandler = handleCommands,
-    eventHandler = handleEvents
-  )
+  def apply(id: UUID = UUID.randomUUID(), capacity: Double = DefaultCapacity): Behavior[BottleCommand] =
+    EventSourcedBehavior[BottleCommand, BottleEvent, BottleState](
+      persistenceId  = PersistenceId.ofUniqueId(id.toString),
+      emptyState     = BottleState(capacity, isClosed = true),
+      commandHandler = handleCommands,
+      eventHandler   = handleEvents
+    )
 
   val handleCommands: (BottleState, BottleCommand) => Effect[BottleEvent, BottleState] = {
     // Unexpected transitions need re-attempting at a later stage
-    case (s@BottleState(_, true), Pour(_, replyTo)) => Effect.reply(replyTo)(UnexpectedCommand(s))
+    case (s @ BottleState(_, true), Pour(_, replyTo)) => Effect.reply(replyTo)(UnexpectedCommand(s))
 
     // Expected transitions
     case (BottleState(_, true), Open(replyTo)) => toggleTapAndReplyTo(replyTo)
     case (BottleState(_, false), Close(replyTo)) => toggleTapAndReplyTo(replyTo)
-    case (s@BottleState(_, false), Pour(amount, replyTo)) if !s.isEmpty => Effect.persist(PouredAmount(amount)).thenReply(replyTo)(CommandResponse(_))
+    case (s @ BottleState(_, false), Pour(amount, replyTo)) if !s.isEmpty =>
+      busy(50.millis)
+      Effect.persist(PouredAmount(amount)).thenReply(replyTo)(CommandResponse(_))
 
     // Anything else return current state right away (command idempotence)
     case (state, command: BottleCommand) => Effect.reply(command.replyTo)(CommandResponse(state))
 
   }
 
-  private def toggleTapAndReplyTo(replyTo: ActorRef[CommandResponse]) =
+  private def toggleTapAndReplyTo(replyTo: ActorRef[CommandResponse]) = {
+    busy(10.millis)
     Effect.persist[BottleEvent, BottleState](TapToggled).thenReply[CommandResponse](replyTo)(CommandResponse(_))
+  }
 
   val handleEvents: (BottleState, BottleEvent) => BottleState = {
-    case (s@BottleState(_, isCurrentlyClosed), TapToggled) => s.copy(isClosed = !isCurrentlyClosed)
-    case (s@BottleState(amountLeft, false), PouredAmount(amount)) => s.copy(amountLeft = amountLeft - amount)
+    case (s @ BottleState(_, isCurrentlyClosed), TapToggled) => s.copy(isClosed          = !isCurrentlyClosed)
+    case (s @ BottleState(amountLeft, false), PouredAmount(amount)) => s.copy(amountLeft = amountLeft - amount)
   }
 
 }
