@@ -189,12 +189,12 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
     }
 
     "Run three load tests" in {
-      // Naive flow where sequentially each command is sent to the entity and then another async task is called - all within the same mapAsync
+      // A simple flow where each command is sequentially sent to the entity and then another async task is called - all within the same mapAsync
       val simpleFlow = Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)].mapAsync(1) {
         case (entity, command) => askCommandToEntity(entity, command).flatMap(_ => doOtherExpensiveTask())
       }
 
-      // As the simpleFlow but the second async task is run in a subsequent flow which is separated using async boundaries and thus enabling pipelining
+      // As the simpleFlow but the second async task is run in a subsequent flow which is separated using async boundaries enabling pipelining
       val flowWithPipelining = Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)]
         .mapAsync(1) {
           case (entity, command) => askCommandToEntity(entity, command)
@@ -221,7 +221,7 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
   }
 
   private def askCommandToEntity(entity: ActorRef[BottleCommand], command: ActorRef[CommandResponse] => BottleCommand) =
-    withRetries(0.milliseconds)(() => entity.ask[CommandResponse](command(_)))
+    withRetries(10.microseconds)(() => entity.ask[CommandResponse](command(_)))
 
   private def doOtherExpensiveTask(): Future[Done] = Future {
     utils.busy(20.milliseconds)
@@ -233,7 +233,7 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
   def withRetries(initDelay: FiniteDuration)(call: () => Future[CommandResponse]): Future[CommandResponse] =
     akka.pattern.after(initDelay, system.scheduler.toClassic)(call()).flatMap {
       case _: UnexpectedCommand =>
-        logger.info("UnexpectedCommand response received... retrying")
+        logger.debug("UnexpectedCommand response received... retrying")
         withRetries(2.milliseconds)(call)
       case resp => Future.successful(resp)
     }

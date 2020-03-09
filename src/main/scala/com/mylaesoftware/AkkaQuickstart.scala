@@ -1,7 +1,6 @@
 //#full-example
 package com.mylaesoftware
 
-
 import akka.actor.typed.ActorRef
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.Behavior
@@ -26,9 +25,8 @@ object Greeter {
 //#greeter-bot
 object GreeterBot {
 
-  def apply(max: Int): Behavior[Greeter.Greeted] = {
+  def apply(max: Int): Behavior[Greeter.Greeted] =
     bot(0, max)
-  }
 
   private def bot(greetingCounter: Int, max: Int): Behavior[Greeter.Greeted] =
     Behaviors.receive { (context, message) =>
