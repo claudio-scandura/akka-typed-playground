@@ -66,18 +66,21 @@ object BottleEntity {
     case (BottleState(_, true), Open(replyTo)) => toggleTapAndReplyTo(replyTo)
     case (BottleState(_, false), Close(replyTo)) => toggleTapAndReplyTo(replyTo)
     case (s @ BottleState(_, false), Pour(amount, replyTo)) if !s.isEmpty =>
-      busy(50.millis)
-      Effect.persist(PouredAmount(amount)).thenReply(replyTo)(CommandResponse(_))
+      Effect
+        .persist[BottleEvent, BottleState](PouredAmount(amount))
+        .thenRun(_ => busy(50.millis))
+        .thenReply(replyTo)(CommandResponse(_))
 
     // Anything else return current state right away (command idempotence)
     case (state, command: BottleCommand) => Effect.reply(command.replyTo)(CommandResponse(state))
 
   }
 
-  private def toggleTapAndReplyTo(replyTo: ActorRef[CommandResponse]) = {
-    busy(10.millis)
-    Effect.persist[BottleEvent, BottleState](TapToggled).thenReply[CommandResponse](replyTo)(CommandResponse(_))
-  }
+  private def toggleTapAndReplyTo(replyTo: ActorRef[CommandResponse]) =
+    Effect
+      .persist[BottleEvent, BottleState](TapToggled)
+      .thenRun(_ => busy(10.millis))
+      .thenReply(replyTo)(CommandResponse(_))
 
   val handleEvents: (BottleState, BottleEvent) => BottleState = {
     case (s @ BottleState(_, isCurrentlyClosed), TapToggled) => s.copy(isClosed          = !isCurrentlyClosed)
