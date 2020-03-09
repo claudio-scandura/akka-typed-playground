@@ -188,7 +188,7 @@ class BottleEntitySpec extends ScalaTestWithActorTestKit(TestConfig.inMemoryJour
 
     }
 
-    "Run three laod tests" in {
+    "Run three load tests" in {
       // Naive flow where sequentially each command is sent to the entity and then another async task is called - all within the same mapAsync
       val simpleFlow = Flow[(ActorRef[BottleCommand], ActorRef[CommandResponse] => BottleCommand)].mapAsync(1) {
         case (entity, command) => askCommandToEntity(entity, command).flatMap(_ => doOtherExpensiveTask())
